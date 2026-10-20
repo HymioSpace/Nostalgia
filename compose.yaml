@@ -1,0 +1,17 @@
+services:
+  nostalgia:
+    image: nostalgia:mvp
+    build:
+      context: .
+      args:
+        PYTHON_IMAGE: ${NOSTALGIA_PYTHON_IMAGE:-python:3.11-slim}
+    ports:
+      - "127.0.0.1:${NOSTALGIA_PUBLISHED_PORT:-8000}:8000"
+    environment:
+      NOSTALGIA_TOKENS_JSON: ${NOSTALGIA_TOKENS_JSON:?Set a JSON mapping of bearer tokens to user IDs}
+    volumes:
+      - nostalgia-data:/data
+    restart: unless-stopped
+
+volumes:
+  nostalgia-data:
