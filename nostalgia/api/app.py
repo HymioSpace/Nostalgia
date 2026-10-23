@@ -309,6 +309,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
         )
 
+    @app.get("/v1/assembly")
+    def assembly(user: User):
+        return read(lambda repo: core.assembly(repo, user))
+
+    @app.get("/v1/events")
+    def events(
+        user: User,
+        after: int = Query(default=0, ge=0, le=2**63 - 1),
+        limit: int = Query(default=50, ge=1, le=200),
+    ):
+        return read(lambda repo: core.events(repo, user, after, limit))
+
     @app.get("/v1/injection", response_model=InjectionResult)
     def injection(user: User):
         return read(lambda repo: core.injection(repo, user))

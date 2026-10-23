@@ -8,3 +8,6 @@ data/
 .coverage
 dist/
 build/
+
+# Local agent instructions
+AGENTS.md

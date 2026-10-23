@@ -114,3 +114,21 @@ buffer 项至少包含原始行 ID、根 ID、item 类型、生产/写入时间�
 Hymio 追加记录后可立即读取注入内容。开始整理后，通过原始列表完整读取固定输入，使用同一查询接口读取关联历史，修改草稿制品和处理状态，更新 `_index`，最后提交。普通 Agent 只需注入、搜索与按 ID 读取。
 
 接口实现语言、部署框架、数据库方言、索引引擎与 Agent 工具名不属于本契约。当前文本查询使用不区分大小写的子串匹配，按稳定 ID 顺序分页；能力信息明确声明该方法，不把它当作语义或相关度检索。后续增加检索实现不改变上述状态与发布语义。
+
+## Layered assembly and durable events
+
+`GET /v1/assembly` separates stable `{content,cache_key}` (only `_core` content) from
+`dynamic` (the existing injection response), plus `view_token` and `events_url`.
+Do not put dynamic navigation/buffer into a cache-sensitive system prefix.
+`_core` is an optional bounded artifact with mandatory source references; it uses the same
+ETag/dream atomic publication protocol. Ordinary dreaming preserves it.
+
+`GET /v1/events?after=0&limit=50` returns user-scoped ordered items `{id,type,data,created_at}`,
+`next_after`, `has_more` and `delivery=at_least_once`. Record appends, context publication and
+rollback emit transactionally with the mutation. Exact idempotent retries emit no new event.
+Consumers persist their checkpoint only after durable acceptance, and deduplicate by event ID.
+Events contain invalidation IDs; fetch current authorized details instead of trusting stale previews.
+
+Source adds kind (`kit|conversation|connector|user|legacy`), parser and strategy (version hints).
+Old sources default to legacy. `source_kind` is available on record lists and search filters.
+Text retrieval remains an authoritative substring scan, not semantic search or a recall guarantee.

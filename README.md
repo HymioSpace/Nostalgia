@@ -60,3 +60,6 @@ HTTP smoke 测试会创建独立临时数据库或容器/卷，走完整整理�
 ```sh
 uv export --no-dev --no-hashes --no-emit-project --format requirements-txt --output-file requirements.txt
 ```
+
+Layered stable context, source kinds and a durable invalidation feed are documented in
+[Context foundation](spec/feature05-context-foundation.md).

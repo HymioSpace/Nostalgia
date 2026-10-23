@@ -32,6 +32,8 @@ class Queries:
             if filters.get(field) is not None and item.get(field) != filters[field]:
                 return False
         source = item.get("source") or {}
+        if filters.get("source_kind") and source.get("kind", "legacy") != filters["source_kind"]:
+            return False
         for field in ("namespace", "external_id"):
             if filters.get(field) is not None and source.get(field) != filters[field]:
                 return False
@@ -91,7 +93,14 @@ class Queries:
             raise Error(400, "query_required", "Text search requires a nonempty query")
         request = query.model_dump(mode="json")
         filters = query.filters.model_dump(mode="json")
-        record_only = {"namespace", "external_id", "item_type", "context_type", "processing_state"}
+        record_only = {
+            "namespace",
+            "external_id",
+            "source_kind",
+            "item_type",
+            "context_type",
+            "processing_state",
+        }
         artifact_only = {"topic", "artifact_type"}
         if query.target == "records" and any(filters.get(k) for k in artifact_only):
             raise Error(400, "invalid_filter", "Artifact-only filter used for records")

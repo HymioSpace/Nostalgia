@@ -186,6 +186,7 @@ class Core:
         )
         if root_id is None:
             repo.update("records", {"id": record_id}, root_id=record_id)
+        self.emit(repo, user, "record.appended", {"record_id": str(record_id)})
         return self.record_view(repo, repo.one("records", id=record_id), self.active(repo, user))
 
     def patch_record(self, repo, user, record_id, dream_id, patch, match):
@@ -243,7 +244,9 @@ class Core:
                 raise Error(422, "invalid_reference", "Reference is outside this dream's input")
 
     def put_artifact(self, repo, user, item_id, dream_id, artifact, match, none_match):
-        if item_id != "_index" and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", item_id):
+        if item_id not in {"_index", "_core"} and not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", item_id
+        ):
             raise Error(400, "invalid_id", "Artifact ID must be a short URL-safe identifier")
         version = self.dream(repo, user, dream_id, editable=True)
         detail = self.detail(repo, version, "artifact", item_id)
@@ -256,6 +259,8 @@ class Core:
                 raise Error(413, "index_too_large", "Summary index exceeds configured limit")
         else:
             self.validate_references(repo, user, version, artifact)
+            if item_id == "_core" and len(artifact.content) > self.settings.index_max_chars:
+                raise Error(413, "core_too_large", "Stable core exceeds configured limit")
         self.save_detail(repo, version, "artifact", item_id, value)
         self.bump(repo, version, index_ready=item_id == "_index")
         data, tag = self.artifact(repo, user, item_id, dream_id)
@@ -421,6 +426,7 @@ class Core:
             report=encode(result),
         )
         self.apply_states(repo, user, states)
+        self.emit(repo, user, "context.published", {"dream_id": dream_id})
         self.prune(repo, user, dream_id)
         return result, self.dream_etag(version)
 
@@ -478,6 +484,7 @@ class Core:
             for d in repo.find("details", version_id=previous["id"], kind="record_state")
         }
         self.apply_states(repo, user, states)
+        self.emit(repo, user, "context.rolled_back", {"view_token": new_token})
         return {
             "state": "rolled_back",
             "view_token": new_token,
@@ -530,3 +537,37 @@ class Core:
             if not items:
                 raise Error(503, "injection_limit", "Stored index exceeds injection budget")
             items.pop(0)
+
+    @staticmethod
+    def emit(repo, user, kind, data):
+        repo.insert("context_events", user_id=user, kind=kind, data=encode(data), created_at=now())
+
+    def events(self, repo, user, after, limit):
+        rows = repo.events(user, after, limit + 1)
+        items = [
+            {
+                "id": str(row["id"]),
+                "type": row["kind"],
+                "data": json.loads(row["data"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows[:limit]
+        ]
+        return {
+            "items": items,
+            "next_after": items[-1]["id"] if items else str(after),
+            "has_more": len(rows) > limit,
+            "delivery": "at_least_once",
+        }
+
+    def assembly(self, repo, user):
+        version, _, token = self.view(repo, user)
+        detail = self.detail(repo, version, "artifact", "_core") if version else None
+        content = json.loads(detail["data"])["content"] if detail else ""
+        return {
+            "protocol_version": "1",
+            "stable": {"content": content, "cache_key": fingerprint(content)},
+            "dynamic": self.injection(repo, user),
+            "view_token": token,
+            "events_url": "/v1/events",
+        }

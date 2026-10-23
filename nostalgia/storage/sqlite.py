@@ -21,6 +21,11 @@ def identifier() -> str:
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS context_events (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL,
+ kind TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS context_event_user ON context_events(user_id,id);
 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS records (
  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, root_id INTEGER,
@@ -164,7 +169,7 @@ class Store:
 class Repository:
     """Transaction-bound record adapter; SQL stays inside this module."""
 
-    tables = {"records", "versions", "details", "assets"}
+    tables = {"records", "versions", "details", "assets", "context_events"}
 
     def __init__(self, conn):
         self.conn = conn
@@ -238,6 +243,15 @@ class Repository:
             )
         ]
         return count, list(reversed(recent))
+
+    def events(self, user, after, limit):
+        return [
+            dict(row)
+            for row in self.conn.execute(
+                "SELECT * FROM context_events WHERE user_id=? AND id>? ORDER BY id LIMIT ?",
+                (user, after, limit),
+            )
+        ]
 
     def head(self, user):
         return self.conn.execute(

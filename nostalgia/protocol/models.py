@@ -44,6 +44,9 @@ class Model(BaseModel):
 
 
 class Source(Model):
+    kind: Literal["kit", "conversation", "connector", "user", "legacy"] = "legacy"
+    parser: Name | None = None
+    strategy: Name | None = None
     namespace: Name
     external_id: Name
     version: Name | None = None
@@ -115,6 +118,7 @@ class Artifact(Model):
 class RecordQuery(Model):
     dream_id: str | None = None
     root_id: ID | None = None
+    source_kind: Literal["kit", "conversation", "connector", "user", "legacy"] | None = None
     namespace: str | None = None
     external_id: str | None = None
     item_type: Literal["context", "command"] | None = None
@@ -143,6 +147,7 @@ class Filters(Model):
     ids: list[str] = Field(default_factory=list, max_length=200)
     root_id: ID | None = None
     topic: str | None = None
+    source_kind: Literal["kit", "conversation", "connector", "user", "legacy"] | None = None
     namespace: str | None = None
     external_id: str | None = None
     item_type: Literal["context", "command"] | None = None
