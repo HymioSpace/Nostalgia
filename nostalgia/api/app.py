@@ -1,7 +1,9 @@
+import asyncio
 import hashlib
 import hmac
 import json
 import sqlite3
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, Query, Request
@@ -13,6 +15,7 @@ from starlette.exceptions import HTTPException
 from ..bootstrap.config import Settings
 from ..core import Core
 from ..core.query import Queries
+from ..dreaming import DreamScheduler
 from ..protocol import (
     Artifact,
     ArtifactResult,
@@ -34,14 +37,33 @@ from ..protocol import (
 from ..storage import Repository, Store, identifier, now
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, dreamer=None) -> FastAPI:
     settings = settings or Settings.from_env()
     store = Store(settings.database)
     core = Core(store, settings)
     queries = Queries(core)
+
+    @asynccontextmanager
+    async def lifespan(application):
+        scheduler = DreamScheduler(settings, store, core, dreamer=dreamer)
+        application.state.dream_scheduler = scheduler
+        stop = asyncio.Event()
+        task = (
+            asyncio.create_task(scheduler.run(stop))
+            if scheduler.dreamer is not None
+            else None
+        )
+        try:
+            yield
+        finally:
+            stop.set()
+            if task is not None:
+                await task
+
     app = FastAPI(
         title="Nostalgia",
         version="0.1.0",
+        lifespan=lifespan,
         responses={
             status: {"model": ErrorResponse}
             for status in (400, 401, 403, 404, 409, 412, 413, 415, 422, 503)
@@ -179,6 +201,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "preview_max_chars": settings.preview_max_chars,
             "injection_max_chars": settings.injection_max_chars,
             "history_limit": settings.history_limit,
+            "dreaming": {
+                "enabled": settings.dreaming_enabled,
+                "interval_seconds": settings.dreaming_interval_seconds,
+                "batch_max_records": settings.dreaming_batch_max_records,
+            },
         }
 
     @app.post("/v1/records", status_code=201, response_model=RecordResult, dependencies=writes)

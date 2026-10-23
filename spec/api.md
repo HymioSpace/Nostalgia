@@ -113,6 +113,11 @@ buffer 项至少包含原始行 ID、根 ID、item 类型、生产/写入时间�
 
 Hymio 追加记录后可立即读取注入内容。开始整理后，通过原始列表完整读取固定输入，使用同一查询接口读取关联历史，修改草稿制品和处理状态，更新 `_index`，最后提交。普通 Agent 只需注入、搜索与按 ID 读取。
 
+生产环境默认由 Nostalgia 内部 scheduler 在配置周期（默认 600 秒）启动这个过程。Scheduler
+通过 HTTP proposal provider 获取 `{artifacts,record_states}`，在 Nostalgia 内依次应用状态、
+保存 `_index` 并执行完整提交校验。Provider 不需要 Nostalgia 凭据，也不能直接提交草稿；
+手动 `/v1/dreams` 接口保留用于诊断和受控重放。
+
 接口实现语言、部署框架、数据库方言、索引引擎与 Agent 工具名不属于本契约。当前文本查询使用不区分大小写的子串匹配，按稳定 ID 顺序分页；能力信息明确声明该方法，不把它当作语义或相关度检索。后续增加检索实现不改变上述状态与发布语义。
 
 ## Layered assembly and durable events

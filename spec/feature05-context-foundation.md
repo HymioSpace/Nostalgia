@@ -24,3 +24,17 @@ Precision/recall require a labeled corpus before any quality claim.
 Compatibility: old injection/search endpoints and source namespace identity are retained. New
 source fields default to legacy; namespace+external_id remains the identity key. New endpoints are
 additive. SQLite creates the event table idempotently; existing record JSON needs no migration.
+
+## Scheduled dreaming
+
+Nostalgia owns a background cycle with a 600-second default interval. Each cycle considers every
+configured user, skips users with no pending records or an active draft, and creates a bounded
+draft containing the oldest pending window. `start_dream` accepts an internal cutoff so a large
+backlog is processed in deterministic slices rather than failing as one oversized request.
+
+The configured HTTP proposal provider receives `{user_id,dream_id,etag,after_id,through_id,
+records,artifacts}`. It returns `{artifacts,record_states}` and has no storage credentials. Record
+states are applied first; artifacts are ordered with `_index` last so index confirmation remains
+valid; the complete Nostalgia commit validation runs before publication. Provider failure aborts
+the draft and records a failure event. Drafts older than the configured timeout are aborted so a
+crash cannot block future cycles. The provider is an implementation extension, not an Agent tool.

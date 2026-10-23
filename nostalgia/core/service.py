@@ -275,10 +275,13 @@ class Core:
         repo.delete("details", version_id=version["id"], kind="artifact", item_id=item_id)
         self.bump(repo, version)
 
-    def start_dream(self, repo, user):
+    def start_dream(self, repo, user, cutoff=None):
         if repo.one("versions", user_id=user, state="draft"):
             raise Error(409, "dream_exists", "Finish or abort the existing dream first")
         base = self.active(repo, user)
+        cutoff = repo.head(user) if cutoff is None else int(cutoff)
+        if not base["cursor"] <= cutoff <= repo.head(user):
+            raise Error(400, "invalid_cutoff", "Dream cutoff must follow the active cursor")
         dream_id = identifier()
         repo.insert(
             "versions",
@@ -287,7 +290,7 @@ class Core:
             state="draft",
             base_id=base["id"],
             cursor=base["cursor"],
-            cutoff=repo.head(user),
+            cutoff=cutoff,
             view_token=identifier(),
             created_at=now(),
             input_after=base["cursor"],

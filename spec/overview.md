@@ -8,7 +8,9 @@ Nostalgia 保存个人 Context 的原文与制品，提供一套 API。增删改
 
 接收成功只表示可靠保存。新的原始内容立即可读、可检索、可进入 buffer，但不表示相应制品已更新。修改、删除意图也遵守这个规则，接收时不自动使旧制品失效。
 
-Hymio 负责来源授权、连接器、媒体解析、整理触发、Oath 调用、tool/skill 和模型上下文注入。Nostalgia 不内置 Agent runtime，不为 Agent 另建一套 API。调用身份与访问权限由 Nostalgia 验证，不等待 dreaming。
+Hymio 负责来源授权、连接器、媒体解析、API 包装、tool/skill 和模型上下文注入。Nostalgia
+负责 dreaming 的调度、草稿生命周期、校验与提交，并通过配置的 proposal provider 获取结构化
+提炼结果。Provider 不直接写存储；Hymio 只配置 extension 并代理自己的用户请求。
 
 ## 三层结构
 
@@ -21,9 +23,8 @@ Hymio 负责来源授权、连接器、媒体解析、整理触发、Oath 调用
 ```mermaid
 flowchart LR
     H[Hymio 采集与用户操作] -->|追加原始记录| N[Nostalgia API / Core]
-    H -->|开始整理| N
-    H -->|skill / tools| O[Oath dreaming Agent]
-    O -->|经 Hymio extension 调用同一套 API| N
+    N -->|按配置周期开始整理| P[Configured dreamer provider]
+    P -->|结构化 artifacts / record states| N
     N --> S[权威记录 / 资源 / 检索索引]
     N -->|摘要索引 + 近期 buffer| H
     A[Hymio 主 Agent] -->|经 extension 检索与读取| N
@@ -114,4 +115,5 @@ Nostalgia 维护 HTTP 协议；Hymio extension 封装查询和整理工具，自
 
 与 Hymio 导入同步草案对接时，持久回执只推进来源采集进度，dreaming 游标独立推进。来源删除先记录 command，生效时间以本设计的发布规则为准；来源版本冲突仍返回冲突，不通过重读后盲目覆盖解决。外部凭据不进入原始内容或模型上下文。
 
-MVP 不包含独立整理调度器、复杂知识图谱、自动 topic 重组、时间衰减、专用召回编排或数据库多实现。保留 JSON 内容、可选能力与存储接口即可，先验证完整接收、整理、注入、查询和回退流程。
+MVP 包含内部整理调度器和单次 provider 提案闭环，不包含复杂知识图谱、自动 topic 重组、
+时间衰减、专用召回编排或数据库多实现。保留 JSON 内容、可选能力与存储接口。
