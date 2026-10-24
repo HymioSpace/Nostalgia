@@ -408,6 +408,11 @@ class Core:
         revived = (old_deleted & active_roots.keys()) | (old_deleted - deleted_roots)
         for root in revived - restored:
             errors.append({"root_id": root, "code": "restore_intent_required"})
+        from .graph import Graph
+
+        errors.extend(Graph(self).validate(repo, user, version))
+        if base["id"] != version["base_id"]:
+            errors.append({"code": "base_changed"})
         if errors:
             raise Error(
                 422, "commit_invalid", "Fix the draft before committing", details=errors[:100]

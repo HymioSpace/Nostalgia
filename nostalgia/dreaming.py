@@ -9,7 +9,9 @@ import urllib.request
 from datetime import UTC, datetime
 
 from .core import Core
+from .core.graph import Graph
 from .protocol import Artifact, Error, RecordPatch, encode
+from .protocol.graph import Relation
 from .storage import Repository, Store
 
 _log = logging.getLogger(__name__)
@@ -65,9 +67,7 @@ class DreamScheduler:
             return
         while not stop.is_set():
             try:
-                await asyncio.wait_for(
-                    stop.wait(), timeout=self.settings.dreaming_interval_seconds
-                )
+                await asyncio.wait_for(stop.wait(), timeout=self.settings.dreaming_interval_seconds)
             except TimeoutError:
                 try:
                     await asyncio.to_thread(self.run_once)
@@ -184,6 +184,25 @@ class DreamScheduler:
             artifacts = []
             for detail in repo.find("details", version_id=active["id"], kind="artifact"):
                 artifacts.append({"id": detail["item_id"], **json.loads(detail["data"])})
+            # Existing evidence is part of the review window: updates must not rely on
+            # summaries alone. Bound the total request; fail rather than silently omit it.
+            reference_ids = {ref["record_id"] for a in artifacts for ref in a.get("references", [])}
+            relations = [
+                {"id": d["item_id"], **json.loads(d["data"])}
+                for d in repo.find("details", version_id=active["id"], kind="relation")
+            ]
+            reference_ids.update(
+                ref["record_id"] for e in relations for ref in e.get("evidence_refs", [])
+            )
+            existing = {r["id"] for r in records}
+            evidence = [
+                self.core.get_record(repo, user, rid, dream_id)[0]
+                for rid in sorted(reference_ids - existing)
+            ]
+            if len(encode([artifacts, evidence, relations])) > 180000:
+                raise RuntimeError(
+                    "Related context exceeds review budget; narrow the review window"
+                )
             return {
                 "protocol_version": "1",
                 "task": "dream",
@@ -194,6 +213,8 @@ class DreamScheduler:
                 "through_id": info["through_id"],
                 "records": records,
                 "artifacts": artifacts,
+                "related_records": evidence,
+                "relations": relations,
             }
 
     def _apply(self, user, dream_id, proposal):
@@ -216,8 +237,7 @@ class DreamScheduler:
                 self.core.patch_record(repo, user, record_id, dream_id, patch, etag)
             ordered = sorted(
                 artifacts,
-                key=lambda item: isinstance(item, dict)
-                and item.get("id") == "_index",
+                key=lambda item: isinstance(item, dict) and item.get("id") == "_index",
             )
             for item in ordered:
                 if not isinstance(item, dict) or not isinstance(item.get("id"), str):
@@ -233,9 +253,16 @@ class DreamScheduler:
                     if exc.code != "not_found":
                         raise
                     match, create = None, "*"
-                self.core.put_artifact(
-                    repo, user, item_id, dream_id, payload, match, create
-                )
+                self.core.put_artifact(repo, user, item_id, dream_id, payload, match, create)
+            relations = proposal.get("relations", [])
+            if not isinstance(relations, list) or len(relations) > 200:
+                raise RuntimeError("Invalid relation proposal")
+            for value in relations:
+                relation = Relation.model_validate(value)
+                if relation.origin != "model":
+                    raise RuntimeError("Dream proposals cannot impersonate user relations")
+                _, tag = self.core.dream_info(repo, user, dream_id)
+                Graph(self.core).put(repo, user, dream_id, relation, tag)
             _, etag = self.core.dream_info(repo, user, dream_id)
             result, _ = self.core.commit(repo, user, dream_id, etag)
             return result

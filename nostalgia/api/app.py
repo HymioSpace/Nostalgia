@@ -14,6 +14,7 @@ from starlette.exceptions import HTTPException
 
 from ..bootstrap.config import Settings
 from ..core import Core
+from ..core.graph import Graph
 from ..core.query import Queries
 from ..dreaming import DreamScheduler
 from ..protocol import (
@@ -34,6 +35,7 @@ from ..protocol import (
     Search,
     SearchResult,
 )
+from ..protocol.graph import GraphQuery, Relation, RetrieveQuery
 from ..storage import Repository, Store, identifier, now
 
 
@@ -42,17 +44,14 @@ def create_app(settings: Settings | None = None, dreamer=None) -> FastAPI:
     store = Store(settings.database)
     core = Core(store, settings)
     queries = Queries(core)
+    graph = Graph(core)
 
     @asynccontextmanager
     async def lifespan(application):
         scheduler = DreamScheduler(settings, store, core, dreamer=dreamer)
         application.state.dream_scheduler = scheduler
         stop = asyncio.Event()
-        task = (
-            asyncio.create_task(scheduler.run(stop))
-            if scheduler.dreamer is not None
-            else None
-        )
+        task = asyncio.create_task(scheduler.run(stop)) if scheduler.dreamer is not None else None
         try:
             yield
         finally:
@@ -191,6 +190,7 @@ def create_app(settings: Settings | None = None, dreamer=None) -> FastAPI:
     def capabilities(user: User):
         return {
             "protocol_version": "1",
+            "graph": {"version": 1, "max_nodes": 60, "max_depth": 2},
             "search_modes": ["filter", "text"],
             "text_search": "case-insensitive substring; stable ID order",
             "max_json_bytes": settings.max_json_bytes,
@@ -294,6 +294,22 @@ def create_app(settings: Settings | None = None, dreamer=None) -> FastAPI:
     @app.post("/v1/search", response_model=SearchResult)
     def search(payload: Search, user: User):
         return read(lambda repo: queries.search(repo, user, payload))
+
+    @app.post("/v1/graph/query")
+    def graph_query(payload: GraphQuery, user: User):
+        return read(lambda repo: graph.query(repo, user, payload))
+
+    @app.post("/v1/retrieve")
+    def retrieve(payload: RetrieveQuery, user: User):
+        return read(lambda repo: graph.retrieve(repo, user, payload))
+
+    @app.put("/v1/relations", dependencies=writes)
+    def put_relation(payload: Relation, request: Request, user: User, dream_id: str):
+        def action(repo):
+            value, tag = graph.put(repo, user, dream_id, payload, request.headers.get("if-match"))
+            return 200, value, tag
+
+        return mutate(request, user, action)
 
     @app.post("/v1/dreams", status_code=201, response_model=DreamResult, dependencies=writes)
     def start_dream(request: Request, user: User):
