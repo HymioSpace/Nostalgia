@@ -167,6 +167,7 @@ class Filters(Model):
 
 
 class Search(Model):
+    order: Literal["id", "recent"] = "id"
     target: Literal["records", "artifacts", "all"] = "all"
     mode: Literal["filter", "text", "semantic"] = "filter"
     query: str | None = Field(default=None, max_length=4000)
@@ -237,6 +238,7 @@ class Page(Model, Generic[T]):
 
 
 class SearchHit(Model):
+    updated_at: datetime | None = None
     kind: Literal["record", "artifact"]
     id: str
     root_id: ID | None

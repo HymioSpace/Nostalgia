@@ -56,6 +56,14 @@ class Queries:
                 raise Error(409, "view_changed", "Restart pagination after the view changed")
             head, offset = page["head"], page["offset"]
         items = items_factory(version, head)
+        if request.get("order") == "recent":
+            items.sort(
+                key=lambda item: (
+                    item.get("updated_at") or item.get("created_at") or "",
+                    item["id"],
+                ),
+                reverse=True,
+            )
         selected = items[offset : offset + request["limit"]]
         next_cursor = None
         if offset + len(selected) < len(items):
@@ -193,4 +201,5 @@ class Queries:
             "references": item.get("references", []),
             "topics": item.get("topics", []),
             "created_at": item["created_at"],
+            "updated_at": item.get("updated_at"),
         }
