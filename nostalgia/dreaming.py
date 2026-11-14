@@ -1,6 +1,7 @@
 """Periodic dreaming owned by Nostalgia and backed by a configured proposal provider."""
 
 import asyncio
+import hashlib
 import json
 import logging
 import threading
@@ -264,7 +265,42 @@ class DreamScheduler:
                 _, tag = self.core.dream_info(repo, user, dream_id)
                 Graph(self.core).put(repo, user, dream_id, relation, tag)
             _, etag = self.core.dream_info(repo, user, dream_id)
+            opportunities = proposal.get("opportunities", [])
+            if not isinstance(opportunities, list) or len(opportunities) > 3:
+                raise RuntimeError("At most three opportunities per cycle")
+            info, _ = self.core.dream_info(repo, user, dream_id)
+            allowed = {
+                str(r["id"])
+                for r in repo.records(user, int(info["through_id"]), after=int(info["after_id"]))
+            }
+            validated = []
+            for item in opportunities:
+                fields = ("key", "title", "objective", "success_criteria", "reason")
+                if not isinstance(item, dict) or any(
+                    not isinstance(item.get(k), str) or not 1 <= len(item[k]) <= 2000
+                    for k in fields
+                ):
+                    raise RuntimeError("Invalid opportunity")
+                evidence = item.get("record_ids")
+                if (
+                    not isinstance(evidence, list)
+                    or not 1 <= len(evidence) <= 10
+                    or any(not isinstance(r, str) or r not in allowed for r in evidence)
+                ):
+                    raise RuntimeError("Opportunity requires frozen source evidence")
+                value = {k: item[k] for k in fields}
+                value.update(record_ids=evidence, dream_id=dream_id)
+                value["id"] = hashlib.sha256((user + "\0" + item["key"]).encode()).hexdigest()
+                validated.append(value)
             result, _ = self.core.commit(repo, user, dream_id, etag)
+            for value in validated:
+                self._event(repo, user, "opportunity.proposed", value)
+            self._event(
+                repo,
+                user,
+                "dreaming.completed",
+                {"dream_id": dream_id, "opportunities": len(validated)},
+            )
             return result
 
     @staticmethod

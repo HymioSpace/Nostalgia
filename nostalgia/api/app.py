@@ -356,6 +356,37 @@ def create_app(settings: Settings | None = None, dreamer=None) -> FastAPI:
     def assembly(user: User):
         return read(lambda repo: core.assembly(repo, user))
 
+    @app.get("/v1/operations/status")
+    def operations_status(user: User):
+        with store.transaction() as conn:
+            counts = {
+                name: conn.execute(
+                    f"SELECT count(*) FROM {name} WHERE user_id=?", (user,)
+                ).fetchone()[0]
+                for name in ("records", "versions", "context_events")
+            }
+            recent = conn.execute(
+                "SELECT id,kind,data,created_at FROM context_events WHERE user_id=? "
+                "AND (kind LIKE 'dreaming.%' OR kind='opportunity.proposed') "
+                "ORDER BY id DESC LIMIT 30",
+                (user,),
+            ).fetchall()
+        return {
+            "enabled": settings.dreaming_enabled,
+            "interval_seconds": settings.dreaming_interval_seconds,
+            "running": app.state.dream_scheduler._lock.locked(),
+            "counts": counts,
+            "events": [
+                {
+                    "id": r["id"],
+                    "kind": r["kind"],
+                    "data": json.loads(r["data"]),
+                    "created_at": r["created_at"],
+                }
+                for r in recent
+            ],
+        }
+
     @app.get("/v1/events")
     def events(
         user: User,

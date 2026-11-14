@@ -90,3 +90,14 @@ uv export --no-dev --no-hashes --no-emit-project --format requirements-txt --out
 
 Layered stable context, source kinds, the scheduled dreaming lifecycle and a durable invalidation
 feed are documented in [Context foundation](spec/feature05-context-foundation.md).
+
+## Context opportunities
+
+A dreaming extension may return an optional `opportunities` array, with at most three items.
+Each item supplies key, title, objective, success_criteria, reason and record_ids from the frozen
+input. Publication validates evidence and commits `opportunity.proposed` events atomically with
+the context version. Consumers maintain their own cursor and deduplicate the stable proposal ID.
+A proposal grants no authority to execute. Hymio owns task acceptance and execution.
+
+Authenticated `GET /v1/operations/status` exposes owner-scoped counts and recent dreaming events
+without provider credentials. See [opportunity design](spec/feature08-task-opportunities.md).
