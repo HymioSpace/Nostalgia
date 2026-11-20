@@ -6,6 +6,7 @@ from conftest import TOKENS, Client
 from fastapi.testclient import TestClient
 
 from nostalgia.api import create_app
+from nostalgia.bootstrap.config import Settings
 from nostalgia.protocol import encode
 
 
@@ -28,6 +29,99 @@ def test_authentication_schema_and_empty_store(api):
     assert "RecordCreate" in schema["components"]["schemas"]
     assert "/v1/dreams/{dream_id}/commit" in schema["paths"]
     assert api.post("/v1/search", json={"mode": "semantic"}).status_code == 400
+
+
+def test_automatic_provisioning_can_start_without_static_tokens(tmp_path):
+    service_token = tmp_path / "service-token"
+    service_token.write_text("internal-service-token")
+    app = create_app(
+        Settings(
+            database=tmp_path / "nostalgia.sqlite",
+            tokens={},
+            dreaming_provider_token_file=service_token,
+        )
+    )
+    with TestClient(app) as client:
+        token = "new-user-token-1234567890"
+        provisioned = client.put(
+            "/v1/admin/tokens/new-user",
+            headers={"Authorization": "Bearer internal-service-token"},
+            json={"token": token},
+        )
+        assert provisioned.status_code == 200
+        assert (
+            client.get(
+                "/v1/records", headers={"Authorization": f"Bearer {token}"}
+            ).status_code
+            == 200
+        )
+
+
+def test_service_can_provision_an_independent_api_token(custom_api, tmp_path):
+    service_token = tmp_path / "service-token"
+    service_token.write_text("internal-service-token")
+    client, _ = custom_api(dreaming_provider_token_file=service_token)
+    token = "new-user-token-1234567890"
+    unauthorized = client.client.put(
+        "/v1/admin/tokens/new-user",
+        headers={"Authorization": "Bearer wrong"},
+        json={"token": token},
+    )
+    assert unauthorized.status_code == 401
+    provisioned = client.client.put(
+        "/v1/admin/tokens/new-user",
+        headers={"Authorization": "Bearer internal-service-token"},
+        json={"token": token},
+    )
+    assert provisioned.status_code == 200
+    created = client.client.post(
+        "/v1/records",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "new-user-once"},
+        json={
+            "item_type": "context",
+            "context_type": "text",
+            "context": {"text": "independent user"},
+        },
+    )
+    assert created.status_code == 201
+    listed = client.client.get(
+        "/v1/records", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["context"]["text"] == "independent user"
+
+
+def test_reprovisioning_rotates_the_user_token_immediately(custom_api, tmp_path):
+    service_token = tmp_path / "service-token"
+    service_token.write_text("internal-service-token")
+    client, _ = custom_api(dreaming_provider_token_file=service_token)
+    first = "new-user-token-1234567890"
+    second = "rotated-user-token-123456"
+    headers = {"Authorization": "Bearer internal-service-token"}
+    assert (
+        client.client.put(
+            "/v1/admin/tokens/new-user", headers=headers, json={"token": first}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.client.put(
+            "/v1/admin/tokens/new-user", headers=headers, json={"token": second}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.client.get(
+            "/v1/records", headers={"Authorization": f"Bearer {first}"}
+        ).status_code
+        == 401
+    )
+    assert (
+        client.client.get(
+            "/v1/records", headers={"Authorization": f"Bearer {second}"}
+        ).status_code
+        == 200
+    )
 
 
 def test_append_idempotency_and_source_lineage(api):

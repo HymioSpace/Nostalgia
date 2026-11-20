@@ -83,7 +83,9 @@ class DreamScheduler:
         try:
             return [
                 result
-                for user in self.settings.dreaming_users
+                for user in tuple(
+                    dict.fromkeys((*self.settings.dreaming_users, *self.store.token_users()))
+                )
                 if (result := self._dream_user(user)) is not None
             ]
         finally:
