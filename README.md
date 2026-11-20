@@ -11,7 +11,9 @@ MVP 已提供独立 HTTP 服务、持久化存储和 Docker 部署。Hymio 负�
 
 ## 启动
 
-需要 Python 3.11+ 与 uv，或者 Docker Compose。先配置 bearer token 到用户的映射，替换下方示例 token；服务不会提供默认凭据。
+需要 Python 3.11+ 与 uv，或者 Docker Compose。接入 Hymio 时只需让 Hymio 和
+Nostalgia 挂载同一个内部服务凭据，注册会自动创建用户 token。独立调试也可以继续使用静态
+bearer token 映射：
 
 ```sh
 export NOSTALGIA_TOKENS_JSON='{"replace-with-your-own-random-token":"local"}'
@@ -20,6 +22,16 @@ uv run nostalgia
 ```
 
 默认监听 `0.0.0.0:8000`，本机数据库为 `data/nostalgia.sqlite3`。`NOSTALGIA_HOST`、`NOSTALGIA_PORT`、`NOSTALGIA_DATABASE` 可覆盖配置。业务 API 使用 `Authorization: Bearer <token>`，写操作另带 `Idempotency-Key`。
+
+Hymio 注册会通过受内部服务凭据保护的
+`PUT /v1/admin/tokens/{user_id}` 自动创建该用户的 Nostalgia token，并把 Hymio 的稳定
+`user_id` 直接作为上下文命名空间。用户不需要单独注册记忆服务。动态 token 只保存 SHA-256
+摘要；静态 `NOSTALGIA_TOKENS_JSON` 继续兼容既有部署。若配置了
+`NOSTALGIA_DREAMING_PROVIDER_TOKEN_FILE`，同一私有凭据也用于自动开通；Hymio 和
+Nostalgia 必须各自挂载同一个只读服务凭据文件。
+
+动态用户会自动进入 dreaming 调度。没有新增原始记录的用户不会创建 dream，也不会调用模型，
+因此空账号不会产生空转 token 消耗。
 
 Docker 启动复用同一份 token 配置：
 

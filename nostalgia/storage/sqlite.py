@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS assets (
  id TEXT PRIMARY KEY, user_id TEXT NOT NULL, content_type TEXT NOT NULL,
  data BLOB NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS api_tokens (
+ token_hash TEXT PRIMARY KEY, user_id TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL
+);
 """
 
 
@@ -132,6 +135,31 @@ class Store:
                 (user, scope, key, signature, status, encode(data), etag),
             )
             return status, data, etag
+
+    def user_for_token(self, token):
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        with self.transaction() as conn:
+            row = conn.execute(
+                "SELECT user_id FROM api_tokens WHERE token_hash=?", (digest,)
+            ).fetchone()
+            return row["user_id"] if row else None
+
+    def provision_token(self, user, token):
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        with self.transaction(write=True) as conn:
+            conn.execute("DELETE FROM api_tokens WHERE user_id=?", (user,))
+            conn.execute(
+                "INSERT INTO api_tokens VALUES(?,?,?)", (digest, user, now())
+            )
+            self.ensure_user(conn, user)
+        return {"user_id": user, "state": "active"}
+
+    def token_users(self):
+        with self.transaction() as conn:
+            return tuple(
+                row["user_id"]
+                for row in conn.execute("SELECT user_id FROM api_tokens ORDER BY user_id")
+            )
 
     def ensure_user(self, conn, user):
         if self.active(conn, user) is None:
