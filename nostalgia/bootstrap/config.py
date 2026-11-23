@@ -28,11 +28,13 @@ class Settings:
     injection_max_chars: int = 16_000
 
     def __post_init__(self):
-        if not self.tokens or any(
+        if any(
             not isinstance(k, str) or len(k) < 16 or not isinstance(v, str) or not v
             for k, v in self.tokens.items()
         ):
-            raise ValueError("Configure tokens of at least 16 characters mapped to user IDs")
+            raise ValueError(
+                "Static tokens must contain at least 16 characters and map to user IDs"
+            )
         if self.history_limit < 2:
             raise ValueError("history_limit must be at least 2")
         if not 1 <= self.port <= 65535:
@@ -72,7 +74,7 @@ class Settings:
 
     @classmethod
     def from_env(cls):
-        raw = os.environ.get("NOSTALGIA_TOKENS_JSON", "")
+        raw = os.environ.get("NOSTALGIA_TOKENS_JSON") or "{}"
         try:
             tokens = json.loads(raw)
         except ValueError as exc:

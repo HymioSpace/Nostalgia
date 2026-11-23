@@ -74,6 +74,9 @@ def create_app(settings: Settings | None = None, dreamer=None) -> FastAPI:
 
     def authenticate(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]):
         if credentials and credentials.scheme.lower() == "bearer":
+            user = store.user_for_token(credentials.credentials)
+            if user:
+                return user
             for token, user in settings.tokens.items():
                 if hmac.compare_digest(credentials.credentials.encode(), token.encode()):
                     return user
@@ -207,6 +210,32 @@ def create_app(settings: Settings | None = None, dreamer=None) -> FastAPI:
                 "batch_max_records": settings.dreaming_batch_max_records,
             },
         }
+
+    @app.put("/v1/admin/tokens/{provisioned_user}")
+    async def provision_token(provisioned_user: str, request: Request):
+        service_file = settings.dreaming_provider_token_file
+        if service_file is None:
+            raise Error(503, "provisioning_disabled", "Token provisioning is not configured")
+        try:
+            expected = service_file.read_text().strip()
+        except OSError as exc:
+            raise Error(
+                503, "provisioning_unavailable", "Provisioning credential unavailable"
+            ) from exc
+        authorization = request.headers.get("authorization", "")
+        supplied = authorization[7:] if authorization.lower().startswith("bearer ") else ""
+        if not expected or not hmac.compare_digest(supplied.encode(), expected.encode()):
+            raise Error(401, "unauthorized", "Valid service credentials required")
+        if not 1 <= len(provisioned_user) <= 200:
+            raise Error(400, "invalid_user", "Invalid context user")
+        try:
+            payload = json.loads(await request.body())
+            token = payload.get("token")
+        except (ValueError, AttributeError) as exc:
+            raise Error(400, "invalid_request", "JSON object with token is required") from exc
+        if not isinstance(token, str) or not 16 <= len(token) <= 512:
+            raise Error(400, "invalid_token", "Token must contain 16..512 characters")
+        return JSONResponse(store.provision_token(provisioned_user, token))
 
     @app.post("/v1/records", status_code=201, response_model=RecordResult, dependencies=writes)
     def append_record(payload: RecordCreate, request: Request, user: User):
